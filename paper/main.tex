@@ -158,13 +158,40 @@ false-positive behavior that \citet{adebayo2022posthoc} warn about.
 % ===========================================================================
 \section{Background}
 \label{sec:background}
-% DRAFT --- brief definitions of the three attribution methods to be expanded.
-Let $f$ be a trained classifier and $x$ an input image. An attribution method produces a map
-$A(x)$ assigning an importance value to each pixel for a chosen target class. Grad-CAM weights the
-activations of the final convolutional layer by their gradients; Integrated Gradients integrates
-input gradients along a straight path from a baseline to $x$; Occlusion Sensitivity measures the
-change in the target score as a sliding window masks regions of $x$. Full definitions are deferred
-to the expanded version.
+Let $f$ be a trained classifier, $x$ an input image, and $f_c(x)$ the (pre-softmax) score for a
+target class $c$. An attribution method produces a map $A_c(x)$ that assigns an importance value to
+each input location.
+
+\paragraph{Grad-CAM \citep{selvaraju2017gradcam}.} Let $A^k$ be the $k$-th feature map of the final
+convolutional layer. Grad-CAM weights each feature map by the average gradient of the target score
+with respect to it and keeps the positive evidence:
+\begin{equation}
+\alpha_k^c = \frac{1}{Z}\sum_{i,j}\frac{\partial f_c(x)}{\partial A^k_{ij}},
+\qquad
+L^c_{\text{Grad-CAM}} = \mathrm{ReLU}\!\left(\sum_k \alpha_k^c\, A^k\right),
+\end{equation}
+where $Z$ is the number of spatial locations. The map is produced at the \emph{resolution of the
+feature map} and then upsampled to the image size; this resolution is central to our Grad-CAM
+result (Section~\ref{sec:limitations}).
+
+\paragraph{Integrated Gradients \citep{sundararajan2017axiomatic}.} For a baseline $x'$ (we use a
+zero image), the attribution of input feature $i$ integrates the gradient along the straight path
+from $x'$ to $x$:
+\begin{equation}
+\mathrm{IG}_i(x) = (x_i - x'_i)\int_{0}^{1}
+\frac{\partial f_c\!\left(x' + \beta (x - x')\right)}{\partial x_i}\, d\beta,
+\end{equation}
+approximated by a Riemann sum over $50$ steps. IG satisfies the Sensitivity and
+Implementation-Invariance axioms and yields a pixel-resolution map.
+
+\paragraph{Occlusion Sensitivity \citep{zeiler2014visualizing}.} For a region $r$ (here a sliding
+$4\times4$ window with stride $2$), the attribution is the drop in the target score when that region
+is masked to a reference value:
+\begin{equation}
+A_c(r) = f_c(x) - f_c\!\left(x_{\setminus r}\right),
+\end{equation}
+where $x_{\setminus r}$ is $x$ with region $r$ occluded. Occlusion is model-agnostic and its
+resolution is set by the window and stride rather than by any internal layer.
 
 % ===========================================================================
 \section{Research Questions and Hypotheses}
@@ -328,12 +355,51 @@ reliance; the behavioral gate in our detection rule is what prevents a false ala
 % ===========================================================================
 \section{Discussion}
 \label{sec:discussion}
-% DRAFT --- to expand.
-Under controlled, \emph{visible}, \emph{known} shortcuts, perturbation- and path-integral-based
-attributions (Occlusion, Integrated Gradients) are effective localizers and their signal scales
-with shortcut strength, consistent with the positive side of \citet{adebayo2020debugging}. The
-false-positive behavior of IG at $\rho=0$ echoes \citet{adebayo2022posthoc}: localization alone can
-mislead, which is why we tie detection to a behavioral test.
+
+We revisit the research questions in light of the results.
+
+\paragraph{RQ1 (Localization) and RQ3 (Consistency).} Integrated Gradients and Occlusion
+Sensitivity place clearly above-chance mass on the marker in every shortcut-reliant model, and they
+agree with one another: both reach pointing-game hit rates near $90$--$98\%$ at $\rho=1.0$. Grad-CAM
+does not---but, as discussed below, we treat this as a measurement artifact rather than a property
+of the method. So two of the three methods are consistent localizers here, and the third is
+inconclusive.
+
+\paragraph{RQ4 (Robustness / dose--response).} The central positive finding is that localization is
+not merely present or absent but \emph{graded}: $\mathrm{AM}^{\star}$ for IG and Occlusion rises
+monotonically with shortcut strength (Spearman $+0.95$ and $+0.89$ against $\rho$;
+Figure~\ref{fig:amstar}). This dose--response behavior is what a present/absent design cannot show,
+and it suggests these attributions carry information about \emph{how much} a model leans on a cue,
+not just whether it does. A caveat tempers the interpretation: because behavioral reliance (AFR)
+saturates by $\rho=0.7$, within the reliant regime $\mathrm{AM}^{\star}$ tracks the \emph{training
+correlation strength} more than it tracks the (already-maxed) behavioral reliance
+(Figure~\ref{fig:faith}). Localization scales with the cue's statistical dominance, which is not the
+same as a calibrated readout of causal dependence.
+
+\paragraph{RQ2 (Detection) and the necessity of a behavioral gate.} Coupling localization with a
+behavioral check cleanly separated the nine reliant models from the three controls. The behavioral
+condition was not a formality: at $\rho=0$, Integrated Gradients already assigned above-chance mass
+to the marker (null-beat $48\%$) even though the model ignored it (AFR $6.8\%$). An analyst reading
+the heat map alone could have ``detected'' a shortcut the model does not use. This reproduces, in a
+medical-imaging setting, the warning of \citet{adebayo2022posthoc} that attribution can indicate
+reliance where none exists, and it argues concretely that a heat map should be corroborated by a
+perturbation-based behavioral test before it is trusted.
+
+\paragraph{Why IG and Occlusion succeed where Grad-CAM appears to fail.} The marker is a $4$-pixel
+cue. IG operates at pixel resolution and Occlusion at the resolution of a $4$-pixel window, so both
+can, in principle, resolve it; Grad-CAM operates at the resolution of the final convolutional
+feature map, which on our ResNet-18 at $64\times64$ input is only $2\times2$. A map that coarse
+cannot isolate a $4$-pixel region regardless of what the model learned. The Grad-CAM outcome is
+therefore uninformative about the method's ability to detect shortcuts and should not be read as a
+negative result; resolving it requires the ablation noted below. This also aligns with
+\citet{saporta2022benchmarking}, who found Grad-CAM competitive among saliency methods but limited
+for small targets.
+
+\paragraph{Takeaway.} Within the easy regime of a visible, known shortcut, perturbation- and
+path-integral attributions are useful detectors \emph{when paired with a behavioral test}, and their
+signal scales with shortcut strength---consistent with the positive side of
+\citet{adebayo2020debugging}. This is an encouraging but narrow result, and the limitations below
+bound how far it should be carried.
 
 % ===========================================================================
 \section{Limitations}
@@ -355,12 +421,20 @@ mislead, which is why we tie detection to a behavioral test.
 % ===========================================================================
 \section{Conclusion}
 \label{sec:conclusion}
-% DRAFT --- to expand.
-In a controlled medical-imaging setting, Integrated Gradients and Occlusion Sensitivity reliably
-localize an injected shortcut and their localization scales with shortcut strength, while coupling
-attribution with a behavioral check is necessary to avoid false positives. Grad-CAM did not localize
-the marker, but we attribute this to feature-map resolution rather than a fundamental limitation,
-and identify the resolution ablation as the key next step.
+We asked whether standard post-hoc attribution methods can detect a model's reliance on a shortcut,
+in a controlled medical-imaging setting where the shortcut is known by construction. Across twelve
+models spanning four shortcut strengths, Integrated Gradients and Occlusion Sensitivity localized
+the injected marker in every shortcut-reliant model and in none of the controls, and their
+localization scaled monotonically with shortcut strength---a dose--response signal that a
+present/absent design cannot reveal. Crucially, attribution localization alone was not sufficient:
+Integrated Gradients flagged the marker even in a control that did not use it, so a behavioral
+reliance test was necessary to avoid false positives. Grad-CAM did not localize the marker, but we
+attribute this to the coarse resolution of its feature map on our architecture rather than to a
+fundamental limitation, and we identify a resolution-matched ablation as the key next step. These
+findings are descriptive---three seeds on a single binary task with a visible, known
+shortcut---and should be read as evidence about that regime rather than a general guarantee.
+The broader lesson is practical: a heat map that highlights a suspicious region is a hypothesis, not
+a verdict, and should be confirmed behaviorally before a model is trusted or rejected.
 
 \bibliographystyle{plainnat}
 \bibliography{references}
