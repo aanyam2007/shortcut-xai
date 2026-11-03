@@ -124,6 +124,13 @@ model does not actually use).
   on GPU/MPS. Overridable with `--arch`.
 - **Attribution target:** on the Conflict set we explain the model's *predicted* class (what it
   used to decide), per §5b.
+- **Checkpoint selection (added after first smoke test):** select the best epoch on a validation
+  set drawn from the SAME biased distribution as training (not a clean val set). Clean-val
+  selection secretly rewards the least shortcut-reliant model — an implicit mitigation that
+  biases the dose-response curve. `--val_clean` reverts to clean-val selection if ever needed.
+  Rationale confirmed empirically: the ρ=1.0 smoke run validated at 25-72% on clean data
+  (because the marker-trained model fails on unmarked images) and saved an early, under-trained
+  epoch; biased-val selection reflects the realistic in-distribution pipeline a practitioner runs.
 
 ## 11. Open defaults awaiting confirmation
 - Marker shape/intensity (solid white square vs a small distinct glyph) — defaulting to solid square.

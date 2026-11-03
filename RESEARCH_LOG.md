@@ -71,3 +71,27 @@ medmnist are not installed in the local Python 3.10. End-to-end execution pendin
 (Colab GPU or a local CPU install). **No experimental results exist yet.**
 
 **Next:** smoke-test the full pipeline (`--quick_test`) in a torch env before the real 12-model run.
+
+---
+
+## 2026-11-03 — Phase 4 smoke test (Colab GPU, ResNet-18) + fixes
+
+**First execution.** `--quick_test` ran end-to-end on Colab (CUDA, ResNet-18). The phenomenon
+reproduced cleanly:
+- ρ=0.0 control: clean acc 87.2%, ΔAcc -0.3% (~0), AFR 13.6% (below 0.3 threshold -> not reliant).
+- ρ=1.0 shortcut: clean acc 74.8% (DEGRADED from 87%), concordant 96.3%, ΔAcc +21.5%, AFR 96.2%.
+  Strong, unambiguous shortcut reliance. (These are smoke-test numbers, 1 seed, NOT final results.)
+
+**Two fixes applied:**
+1. Added `tests/__init__.py` so `python -m unittest tests.test_pipeline` imports (was
+   ModuleNotFoundError: tests is not a package).
+2. **Checkpoint selection changed to biased-val (default), with `--val_clean` escape hatch.**
+   The ρ=1.0 run exposed that clean-val selection saved an early under-trained epoch and works
+   against the study's goal (see METHODOLOGY.md §10b). Also added per-method AM*/hit/null-beat
+   console printout.
+
+**Caveat for re-runs:** cached checkpoints in ./checkpoints were trained under the OLD clean-val
+selection. Delete ./checkpoints (and ./results) before re-running so the new selection takes effect.
+
+**Status:** pipeline validated end-to-end; still no FINAL results (need the multi-seed run with
+the corrected selection). Phase 5 analysis begins only after that run.

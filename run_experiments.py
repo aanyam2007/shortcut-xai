@@ -73,7 +73,7 @@ def attribute_on_conflict(ckpt_path, device, marker_size, target_size, seed,
 
 
 def run_benchmark(rhos, seeds, epochs, arch, marker_size, target_size,
-                  sample_limit, afr_threshold, output_dir, data_dir):
+                  sample_limit, afr_threshold, output_dir, data_dir, val_clean=False):
     os.makedirs(output_dir, exist_ok=True)
     fig_dir = os.path.join(output_dir, "figures")
     os.makedirs(fig_dir, exist_ok=True)
@@ -94,7 +94,7 @@ def run_benchmark(rhos, seeds, epochs, arch, marker_size, target_size,
             if not os.path.exists(ckpt):
                 train_model(bias_prob=rho, seed=seed, arch=arch, epochs=epochs,
                             marker_size=marker_size, target_size=target_size,
-                            output_dir="./checkpoints", data_dir=data_dir)
+                            val_clean=val_clean, output_dir="./checkpoints", data_dir=data_dir)
             else:
                 print(f"[+] Found checkpoint {ckpt}")
 
@@ -114,6 +114,12 @@ def run_benchmark(rhos, seeds, epochs, arch, marker_size, target_size,
             for m in METHODS:
                 row[f'detected_{m}'] = bool(row[f'nullbeat_{m}'] > 0.5 and reliant)
             rows.append(row)
+
+            print(f"    behaviorally reliant: {reliant} (AFR {behavior['adversarial_flip_rate']*100:.1f}%)")
+            for m in METHODS:
+                print(f"    {m:<20} AM* {row[f'amstar_{m}']*100:+6.2f}%  "
+                      f"hit {row[f'hit_{m}']*100:5.1f}%  null-beat {row[f'nullbeat_{m}']*100:5.1f}%  "
+                      f"=> detected={row[f'detected_{m}']}")
 
     per_model = pd.DataFrame(rows)
     per_model_path = os.path.join(output_dir, "per_model_metrics.csv")
@@ -168,6 +174,8 @@ if __name__ == "__main__":
     p.add_argument("--target_size", type=int, default=28)
     p.add_argument("--samples", type=int, default=100, help="attribution images per model")
     p.add_argument("--afr_threshold", type=float, default=0.3)
+    p.add_argument("--val_clean", action="store_true",
+                   help="Select checkpoints on a CLEAN val set (default: biased, matching training)")
     p.add_argument("--output_dir", type=str, default="./results")
     p.add_argument("--data_dir", type=str, default="./data")
     p.add_argument("--quick_test", action="store_true", help="2 rhos x 1 seed, few images")
@@ -178,4 +186,4 @@ if __name__ == "__main__":
 
     run_benchmark(args.rhos, args.seeds, args.epochs, args.arch, args.marker_size,
                   args.target_size, args.samples, args.afr_threshold,
-                  args.output_dir, args.data_dir)
+                  args.output_dir, args.data_dir, val_clean=args.val_clean)

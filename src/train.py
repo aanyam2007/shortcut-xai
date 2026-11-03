@@ -77,6 +77,7 @@ def train_model(
     target_size=28,
     upsample_size=64,
     pretrained=True,
+    val_clean=False,
     output_dir="./checkpoints",
     data_dir="./data",
 ):
@@ -92,10 +93,19 @@ def train_model(
         split='train', bias_prob=bias_prob, mode='train_biased',
         marker_size=marker_size, target_size=target_size, seed=seed, data_dir=data_dir,
     )
-    val_dataset = ShortcutDataset(
-        split='val', bias_prob=0.0, mode='test_clean',
-        marker_size=marker_size, target_size=target_size, seed=seed, data_dir=data_dir,
-    )
+    # By default, validate on the SAME biased distribution used for training, so checkpoint
+    # selection reflects a realistic in-distribution pipeline rather than secretly rewarding
+    # the least shortcut-reliant model (which clean-val selection would do). --val_clean reverts.
+    if val_clean:
+        val_dataset = ShortcutDataset(
+            split='val', bias_prob=0.0, mode='test_clean',
+            marker_size=marker_size, target_size=target_size, seed=seed, data_dir=data_dir,
+        )
+    else:
+        val_dataset = ShortcutDataset(
+            split='val', bias_prob=bias_prob, mode='train_biased',
+            marker_size=marker_size, target_size=target_size, seed=seed, data_dir=data_dir,
+        )
 
     g = torch.Generator()
     g.manual_seed(seed)
@@ -116,6 +126,7 @@ def train_model(
         'batch_size': batch_size, 'lr': lr, 'weight_decay': weight_decay,
         'marker_size': marker_size, 'target_size': target_size,
         'upsample_size': upsample_size, 'pretrained': pretrained,
+        'val_clean': val_clean,
     }
 
     for epoch in range(1, epochs + 1):
@@ -143,9 +154,11 @@ if __name__ == "__main__":
     parser.add_argument("--lr", type=float, default=1e-3)
     parser.add_argument("--marker_size", type=int, default=4)
     parser.add_argument("--target_size", type=int, default=28)
+    parser.add_argument("--val_clean", action="store_true",
+                        help="Select checkpoint on a CLEAN val set (default: biased, matching training)")
     args = parser.parse_args()
     train_model(
         bias_prob=args.bias, seed=args.seed, arch=args.arch, epochs=args.epochs,
         batch_size=args.batch_size, lr=args.lr, marker_size=args.marker_size,
-        target_size=args.target_size,
+        target_size=args.target_size, val_clean=args.val_clean,
     )
