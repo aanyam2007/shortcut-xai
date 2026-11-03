@@ -95,3 +95,26 @@ selection. Delete ./checkpoints (and ./results) before re-running so the new sel
 
 **Status:** pipeline validated end-to-end; still no FINAL results (need the multi-seed run with
 the corrected selection). Phase 5 analysis begins only after that run.
+
+---
+
+## 2026-11-03 — Phase 5 (Results) + Phase 6 start (Paper)
+
+**Full 12-model run completed** (user, Colab GPU, ResNet-18, biased-val selection). Aggregates
+were computed from per_model_metrics.csv (not transcribed) and written to RESULTS.md. Headline:
+IG and Occlusion detect 9/9 reliant models and 0/3 controls; Grad-CAM 0/12 but **confounded by a
+2x2 feature map** (cannot resolve a 4px marker). IG shows a false-positive tendency at rho=0 that
+the behavioral gate correctly suppresses. n=3 -> descriptive only.
+
+**Decision:** user confirmed this is a college project; the Grad-CAM resolution ablation is
+OPTIONAL (not run yet). Agreed constraint: the paper must frame Grad-CAM's failure as
+resolution-confounded, not as a clean finding.
+
+**Phase 6 started.** Created paper/references.bib (16 verified refs + MedMNIST/PyTorch/Captum/
+ResNet; MedMNIST v2 metadata verified this session) and paper/main.tex. Data-anchored sections
+(Methodology, Experimental Setup, Results, Abstract, Limitations) written in full from the real
+numbers; Intro/Related Work/Background/Discussion/Conclusion are first drafts to expand next.
+LaTeX not compilable locally (no toolchain) -> compile on Overleaf; main.tex uses a \safefig
+macro so it builds before figures are added.
+
+**Next:** (optional) Grad-CAM ablation; expand Intro/Related/Discussion; then Phase 7 review.

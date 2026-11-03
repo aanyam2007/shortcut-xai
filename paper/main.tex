@@ -1,0 +1,293 @@
+\documentclass[11pt]{article}
+
+\usepackage[utf8]{inputenc}
+\usepackage[T1]{fontenc}
+\usepackage{amsmath,amssymb}
+\usepackage{graphicx}
+\usepackage{booktabs}
+\usepackage{siunitx}
+\usepackage[hidelinks]{hyperref}
+\usepackage[round]{natbib}
+\usepackage{geometry}
+\geometry{margin=1in}
+
+\graphicspath{{figures/}}
+% Compile-safe figure include: shows a placeholder box if the image is absent,
+% so the paper builds before the figures are copied into paper/figures/.
+\newcommand{\safefig}[2][width=0.8\linewidth]{%
+  \IfFileExists{figures/#2}{\includegraphics[#1]{#2}}%
+  {\fbox{\parbox[c][3cm][c]{0.8\linewidth}{\centering\ttfamily figure placeholder: figures/#2}}}}
+
+\title{Can Explainability Detect Shortcut Learning?\\
+\large A Controlled Dose--Response Study of Grad-CAM, Integrated Gradients,\\ and Occlusion Sensitivity on a Medical Image Classifier}
+\author{Aanya Mittal}
+\date{\today}
+
+\begin{document}
+\maketitle
+
+\begin{abstract}
+% Grounded in the actual experiment. Revise wording freely; keep the numbers.
+Deep networks for medical imaging often rely on \emph{shortcuts}---spurious cues correlated
+with the label---rather than disease-relevant features. We ask whether three widely used
+post-hoc attribution methods (Grad-CAM, Integrated Gradients, and Occlusion Sensitivity) can
+detect such reliance under controlled conditions. We inject a small artificial marker at a
+random location into PneumoniaMNIST images, correlating it with the disease label at four
+strengths ($\rho \in \{0.0, 0.7, 0.9, 1.0\}$), train twelve classifiers (four strengths,
+three seeds), and verify behavioral reliance before trusting any explanation. We measure
+attribution mass above a random-box chance level ($\mathrm{AM}^{\star}$), pointing-game hit
+rate, and a detection rule that requires both above-chance localization and measured behavioral
+reliance. Integrated Gradients and Occlusion Sensitivity localize the marker in all nine
+shortcut-reliant models and in none of the three controls, with $\mathrm{AM}^{\star}$ rising
+monotonically with $\rho$ (Spearman $+0.95$ and $+0.89$ against $\rho$). Grad-CAM fails to
+localize the marker in all twelve models; however, we show this outcome is confounded by the
+coarse spatial resolution of its feature map on our architecture and cannot be read as evidence
+that Grad-CAM is blind to shortcuts. We also observe that Integrated Gradients places
+above-chance mass on the marker even in control models that do not rely on it, underscoring that
+attribution alone is not evidence of reliance. These are descriptive findings from three seeds
+on a single binary task and are not claimed to be statistically powered or to generalize.
+\end{abstract}
+
+% ===========================================================================
+\section{Introduction}
+\label{sec:intro}
+% DRAFT --- to expand in the next iteration.
+Deep neural networks frequently achieve high benchmark accuracy by exploiting shortcuts:
+decision rules that work on the training distribution but fail under shift
+\citep{geirhos2020shortcut}. In medical imaging this is not hypothetical: classifiers have been
+shown to key on hospital-specific tokens \citep{zech2018variable}, acquisition confounders
+\citep{degrave2021ai}, and surgical skin markings \citep{winkler2019association} rather than
+pathology. Because explanation (XAI) methods are routinely proposed as a safeguard, a practical
+question follows: \emph{can attribution methods actually reveal when a model relies on a
+shortcut?} This work studies that question in a controlled setting where the shortcut is known
+by construction, so that detection can be scored against ground truth.
+
+Our contributions are: (i) a controlled, reproducible dose--response benchmark that varies
+shortcut strength rather than treating the shortcut as merely present/absent; (ii) a detection
+protocol that couples attribution localization with a measured behavioral check, guarding against
+false positives; and (iii) a head-to-head comparison of Grad-CAM, Integrated Gradients, and
+Occlusion Sensitivity, with an explicit analysis of the resolution confound that affects Grad-CAM.
+
+% ===========================================================================
+\section{Related Work}
+\label{sec:related}
+% DRAFT --- to expand.
+\textbf{Shortcut learning and spurious correlations.} \citet{geirhos2020shortcut} frame shortcut
+learning as a unifying account of generalization failures. In medical imaging,
+\citet{zech2018variable}, \citet{degrave2021ai}, and \citet{winkler2019association} document
+concrete shortcuts. \citet{lapuschkin2019unmasking} use explanations to expose ``Clever Hans''
+behavior at the dataset level.
+
+\textbf{Attribution methods.} We study three established methods: Grad-CAM
+\citep{selvaraju2017gradcam}, Integrated Gradients \citep{sundararajan2017axiomatic}, and
+Occlusion Sensitivity \citep{zeiler2014visualizing}.
+
+\textbf{Reliability of attributions.} \citet{adebayo2018sanity} show several saliency methods
+fail basic sanity checks; \citet{arun2021assessing} and \citet{saporta2022benchmarking} find
+saliency maps are weak localizers in medical imaging. Most directly,
+\citet{adebayo2020debugging} and \citet{adebayo2022posthoc} ask whether post-hoc explanations
+detect injected spurious signals, reporting that detection succeeds for visible/known artifacts
+but fails for unknown or non-visible ones---the nuance our study operates within. Explanation-guided
+training \citep{ross2017right,rieger2020interpretations} assumes the shortcut is already known;
+we instead ask whether it can be \emph{detected}.
+
+% ===========================================================================
+\section{Background}
+\label{sec:background}
+% DRAFT --- brief definitions of the three attribution methods to be expanded.
+Let $f$ be a trained classifier and $x$ an input image. An attribution method produces a map
+$A(x)$ assigning an importance value to each pixel for a chosen target class. Grad-CAM weights the
+activations of the final convolutional layer by their gradients; Integrated Gradients integrates
+input gradients along a straight path from a baseline to $x$; Occlusion Sensitivity measures the
+change in the target score as a sliding window masks regions of $x$. Full definitions are deferred
+to the expanded version.
+
+% ===========================================================================
+\section{Research Questions and Hypotheses}
+\label{sec:rq}
+\begin{description}
+  \item[RQ1 (Localization).] Do attribution maps place above-chance mass on the shortcut marker?
+  \item[RQ2 (Detection).] Does a localization+behavior rule separate shortcut-reliant models from controls?
+  \item[RQ3 (Consistency).] Do the three methods agree?
+  \item[RQ4 (Robustness).] How does localization behave as shortcut strength $\rho$ varies?
+\end{description}
+
+% ===========================================================================
+\section{Methodology}
+\label{sec:method}
+
+\paragraph{Dataset.} We use PneumoniaMNIST from MedMNIST v2 \citep{yang2023medmnist}, a binary
+chest-X-ray task (normal vs.\ pneumonia) at $28\times28$ resolution with the official
+train/validation/test split. Images are replicated to three channels and normalized with ImageNet
+statistics (the backbone is ImageNet-pretrained; for the from-scratch model this is a fixed affine).
+
+\paragraph{Controlled shortcut injection.} We stamp a solid $4\times4$-pixel high-intensity square
+marker at a \emph{random} location (recorded per image as a ground-truth box $B$). Injection is
+one-sided and controlled by a strength $\rho\in[0,1]$: a disease image (label $1$) receives a marker
+with probability $\rho$; a normal image never does. Thus $\rho=0$ is a clean baseline (no markers)
+and $\rho=1$ makes the marker a perfectly predictive cue. All injection decisions and positions are
+drawn from seeded RNGs and are fully reproducible.
+
+\paragraph{Models and training.} Each model is a classifier trained with AdamW (lr $10^{-3}$,
+batch $128$, up to $10$ epochs, cross-entropy). The reported runs use an ImageNet-pretrained
+ResNet-18 \citep{he2016resnet} (inputs upsampled to $64\times64$); a from-scratch SmallCNN is also
+available. \textbf{Checkpoint selection uses a validation set drawn from the same biased
+distribution as training}, so selection reflects a realistic in-distribution pipeline rather than
+secretly rewarding the least shortcut-reliant model (which clean-validation selection would do).
+We train $4~\text{strengths}\times 3~\text{seeds}=12$ models.
+
+\paragraph{Test-time conditions.} On the held-out test split we evaluate: \emph{Clean} (no marker),
+\emph{Concordant} (marker follows the training rule), and \emph{Conflict} (marker stamped on normal
+images, breaking the correlation). Attribution is computed on the Conflict set for the model's
+\emph{predicted} class.
+
+\paragraph{Metrics.} Let $A(x)$ be an attribution map and $B$ the marker box.
+\begin{align}
+\mathrm{AM} &= \frac{\sum_{(i,j)\in B}|A(i,j)|}{\sum_{(i,j)}|A(i,j)|},
+& \mathrm{AM}^{\star} &= \mathrm{AM} - \frac{|B|}{|x|},
+\end{align}
+where $|B|/|x|$ is the chance mass of an equal-area box. We also report the \emph{pointing-game}
+hit rate (fraction of images whose attribution peak lies in $B$) and, per image, compare
+$\mathrm{AM}$ to the $95$th percentile of $\mathrm{AM}$ over $500$ random equal-area boxes
+(\emph{null-beat}). Behaviorally, we report clean accuracy, the accuracy gain
+$\Delta\mathrm{Acc}=\mathrm{Acc}_{\text{concordant}}-\mathrm{Acc}_{\text{clean}}$, and the
+\emph{adversarial flip rate} (AFR): among normal images classified correctly when clean, the
+fraction that flip to ``pneumonia'' once the marker is added.
+
+\paragraph{Detection rule.} A method \emph{detects} the shortcut in a model if it beats the random-box
+null for a majority of Conflict images \textbf{and} the model is behaviorally reliant
+($\mathrm{AFR}>0.3$). Requiring the behavioral condition guards against calling a model
+shortcut-reliant purely because an attribution map responds to the visible marker.
+
+% ===========================================================================
+\section{Experimental Setup}
+\label{sec:setup}
+We use PyTorch \citep{paszke2019pytorch} and Captum \citep{kokhlikyan2020captum}. Integrated
+Gradients uses a zero baseline and $50$ steps; Occlusion uses a $4\times4$ window with stride $2$
+(matched to the marker). Attribution is evaluated on up to $100$ Conflict images per model. Seeds
+$\{0,1,2\}$ control weights, data order, and marker placement; cuDNN is set deterministic. All code,
+configurations, and per-model outputs are released; figures and tables below are generated directly
+from \texttt{per\_model\_metrics.csv}.
+
+% ===========================================================================
+\section{Results}
+\label{sec:results}
+
+\paragraph{The injected shortcut induces measurable reliance (Table~\ref{tab:behavior}).}
+At $\rho=0$ the models ignore the marker behaviorally (AFR $6.8\%$, $\Delta\mathrm{Acc}\approx 0$).
+From $\rho=0.7$ onward the marker dominates behavior: AFR exceeds $90\%$, meaning the model flips
+the large majority of healthy images to ``pneumonia'' when the marker is stamped on them. At
+$\rho=1.0$ the shortcut also \emph{displaces} genuine learning: clean accuracy collapses from
+$85\%$ to $48\%$ (with large seed variance), i.e.\ the model can barely classify unmarked images.
+
+\begin{table}[t]
+\centering
+\caption{Behavioral reliance by shortcut strength $\rho$ (mean\,$\pm$\,SD over 3 seeds).}
+\label{tab:behavior}
+\begin{tabular}{lccc}
+\toprule
+$\rho$ & Clean acc.\ (\%) & $\Delta\mathrm{Acc}$ (\%) & AFR (\%) \\
+\midrule
+0.0 & $85.0\pm1.9$ & $-0.3\pm0.3$ & $6.8\pm6.1$ \\
+0.7 & $90.7\pm1.3$ & $+0.6\pm0.2$ & $90.6\pm3.2$ \\
+0.9 & $89.6\pm1.7$ & $+1.7\pm0.6$ & $91.2\pm6.9$ \\
+1.0 & $48.0\pm15.2$ & $+51.7\pm15.8$ & $98.7\pm0.4$ \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\paragraph{IG and Occlusion localize the shortcut; Grad-CAM does not (Table~\ref{tab:xai}).}
+Attribution mass above chance ($\mathrm{AM}^{\star}$) for Integrated Gradients and Occlusion rises
+monotonically with $\rho$ and is well above zero for all shortcut-reliant models, with pointing-game
+hit rates reaching $98\%$ and $90\%$ at $\rho=1.0$. Grad-CAM's $\mathrm{AM}^{\star}$ stays near zero
+at every strength ($\leq 1.2\%$) and its peak almost never lands in the marker (hit rate $\approx
+3\%$).
+
+\begin{table}[t]
+\centering
+\caption{Attribution localization by method and strength: $\mathrm{AM}^{\star}$ (mean\,$\pm$\,SD, \%),
+pointing-game hit rate (\%), and models flagged by the detection rule (of 3 seeds).}
+\label{tab:xai}
+\begin{tabular}{lccc ccc ccc}
+\toprule
+ & \multicolumn{3}{c}{Grad-CAM} & \multicolumn{3}{c}{Integrated Gradients} & \multicolumn{3}{c}{Occlusion} \\
+\cmidrule(lr){2-4}\cmidrule(lr){5-7}\cmidrule(lr){8-10}
+$\rho$ & $\mathrm{AM}^{\star}$ & hit & det & $\mathrm{AM}^{\star}$ & hit & det & $\mathrm{AM}^{\star}$ & hit & det \\
+\midrule
+0.0 & $-0.2\pm0.1$ & 2  & 0/3 & $3.0\pm1.5$  & 22 & 0/3 & $0.1\pm0.3$  & 3  & 0/3 \\
+0.7 & $1.0\pm0.4$  & 3  & 0/3 & $8.5\pm1.1$  & 75 & 3/3 & $7.8\pm2.0$  & 66 & 3/3 \\
+0.9 & $0.9\pm0.5$  & 3  & 0/3 & $11.0\pm1.6$ & 84 & 3/3 & $13.7\pm2.6$ & 84 & 3/3 \\
+1.0 & $1.2\pm0.3$  & 3  & 0/3 & $19.2\pm2.9$ & 98 & 3/3 & $17.2\pm6.0$ & 90 & 3/3 \\
+\midrule
+\multicolumn{1}{l}{\textbf{Total det.}} & & & \textbf{0/12} & & & \textbf{9/12} & & & \textbf{9/12} \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\begin{figure}[t]
+\centering
+\safefig{amstar_vs_rho.png}
+\caption{Attribution mass above chance ($\mathrm{AM}^{\star}$) vs.\ shortcut strength $\rho$
+(mean\,$\pm$\,SD over seeds). IG and Occlusion increase with $\rho$; Grad-CAM stays near zero.}
+\label{fig:amstar}
+\end{figure}
+
+\paragraph{Localization tracks shortcut strength (RQ4).} Across the 12 models, $\mathrm{AM}^{\star}$
+correlates with $\rho$ at Spearman $+0.95$ (IG) and $+0.89$ (Occlusion), and with the behavioral
+displacement $\Delta\mathrm{Acc}$ at $+0.97$ and $+0.91$. Because AFR saturates at $\rho\geq0.7$,
+within the reliant regime $\mathrm{AM}^{\star}$ tracks $\rho$ more than it tracks AFR
+(Figure~\ref{fig:faith}). Grad-CAM shows only a weak, small-magnitude trend ($+0.61$ vs.\ $\rho$).
+
+\begin{figure}[t]
+\centering
+\safefig{afr_vs_amstar.png}
+\caption{Behavioral reliance (AFR) vs.\ localization ($\mathrm{AM}^{\star}$) across all 12 models.}
+\label{fig:faith}
+\end{figure}
+
+\paragraph{A false-positive caution.} At $\rho=0$, Integrated Gradients already places above-chance
+mass on the marker (null-beat $48\%$, hit $22\%$) even though the model does not rely on it
+(AFR $6.8\%$). Attribution responding to a visible marker is therefore \emph{not} evidence of
+reliance; the behavioral gate in our detection rule is what prevents a false alarm.
+
+% ===========================================================================
+\section{Discussion}
+\label{sec:discussion}
+% DRAFT --- to expand.
+Under controlled, \emph{visible}, \emph{known} shortcuts, perturbation- and path-integral-based
+attributions (Occlusion, Integrated Gradients) are effective localizers and their signal scales
+with shortcut strength, consistent with the positive side of \citet{adebayo2020debugging}. The
+false-positive behavior of IG at $\rho=0$ echoes \citet{adebayo2022posthoc}: localization alone can
+mislead, which is why we tie detection to a behavioral test.
+
+% ===========================================================================
+\section{Limitations}
+\label{sec:limitations}
+% These are load-bearing; keep them.
+\begin{itemize}
+  \item \textbf{Grad-CAM's failure is confounded by resolution.} On ResNet-18 with $64\times64$
+  inputs the final convolutional feature map is only $2\times2$, which cannot resolve a $4$-pixel
+  marker. We therefore \emph{do not} conclude that Grad-CAM is blind to shortcuts; a fair comparison
+  requires a finer feature map (e.g.\ the SmallCNN variant, $14\times14$) or higher input resolution.
+  \item \textbf{Small sample.} Three seeds and one binary task yield descriptive trends only; we make
+  no claims of statistical significance or generalization across datasets/architectures.
+  \item \textbf{Visible, known shortcut.} We study the easy regime; non-visible or unknown shortcuts
+  (cf.\ \citet{adebayo2022posthoc}) are out of scope.
+  \item \textbf{Method hyperparameters.} Occlusion window/stride and the IG baseline are fixed a
+  priori; results may shift under other choices.
+\end{itemize}
+
+% ===========================================================================
+\section{Conclusion}
+\label{sec:conclusion}
+% DRAFT --- to expand.
+In a controlled medical-imaging setting, Integrated Gradients and Occlusion Sensitivity reliably
+localize an injected shortcut and their localization scales with shortcut strength, while coupling
+attribution with a behavioral check is necessary to avoid false positives. Grad-CAM did not localize
+the marker, but we attribute this to feature-map resolution rather than a fundamental limitation,
+and identify the resolution ablation as the key next step.
+
+\bibliographystyle{plainnat}
+\bibliography{references}
+
+\end{document}
