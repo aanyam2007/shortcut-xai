@@ -265,7 +265,7 @@ Attribution mass above chance ($\mathrm{AM}^{\star}$) for Integrated Gradients a
 monotonically with $\rho$ and is well above zero for all shortcut-reliant models, with pointing-game
 hit rates reaching $98\%$ and $90\%$ at $\rho=1.0$. Grad-CAM's $\mathrm{AM}^{\star}$ stays near zero
 at every strength ($\leq 1.2\%$) and its peak almost never lands in the marker (hit rate $\approx
-3\%$).
+3\%$). Figure~\ref{fig:qual} shows a representative Conflict-set example illustrating this contrast.
 
 \begin{table}[t]
 \centering
@@ -287,6 +287,17 @@ $\rho$ & $\mathrm{AM}^{\star}$ & hit & det & $\mathrm{AM}^{\star}$ & hit & det &
 \bottomrule
 \end{tabular}
 \end{table}
+
+\begin{figure}[t]
+\centering
+\safefig[width=\linewidth]{qualitative_conflict.png}
+\caption{Representative Conflict-set example at $\rho=1.0$ (the marker is stamped on a
+\emph{normal} chest X-ray at a random location). Panels, left to right: input image; the
+ground-truth marker box; and the Grad-CAM, Integrated Gradients, and Occlusion attribution maps for
+the model's predicted class. Integrated Gradients and Occlusion concentrate on the marker, whereas
+Grad-CAM is spatially diffuse and does not isolate it.}
+\label{fig:qual}
+\end{figure}
 
 \begin{figure}[t]
 \centering
