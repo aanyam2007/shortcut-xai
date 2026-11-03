@@ -51,45 +51,109 @@ on a single binary task and are not claimed to be statistically powered or to ge
 % ===========================================================================
 \section{Introduction}
 \label{sec:intro}
-% DRAFT --- to expand in the next iteration.
-Deep neural networks frequently achieve high benchmark accuracy by exploiting shortcuts:
-decision rules that work on the training distribution but fail under shift
-\citep{geirhos2020shortcut}. In medical imaging this is not hypothetical: classifiers have been
-shown to key on hospital-specific tokens \citep{zech2018variable}, acquisition confounders
-\citep{degrave2021ai}, and surgical skin markings \citep{winkler2019association} rather than
-pathology. Because explanation (XAI) methods are routinely proposed as a safeguard, a practical
-question follows: \emph{can attribution methods actually reveal when a model relies on a
-shortcut?} This work studies that question in a controlled setting where the shortcut is known
-by construction, so that detection can be scored against ground truth.
 
-Our contributions are: (i) a controlled, reproducible dose--response benchmark that varies
-shortcut strength rather than treating the shortcut as merely present/absent; (ii) a detection
-protocol that couples attribution localization with a measured behavioral check, guarding against
-false positives; and (iii) a head-to-head comparison of Grad-CAM, Integrated Gradients, and
-Occlusion Sensitivity, with an explicit analysis of the resolution confound that affects Grad-CAM.
+Deep neural networks often reach high benchmark accuracy by exploiting \emph{shortcuts}: decision
+rules that succeed on the training distribution but fail to transfer to more challenging conditions
+\citep{geirhos2020shortcut}. Rather than learning the intended concept, a model may latch onto an
+incidental cue that happens to correlate with the label. This matters most where errors are costly,
+and medical imaging is a clear example. Classifiers trained to read chest radiographs have been
+shown to infer the source hospital---and with it disease prevalence---rather than pathology
+\citep{zech2018variable}; COVID-19 detectors have been found to rely on acquisition and dataset-source
+confounders instead of lung findings \citep{degrave2021ai}; and a melanoma classifier was swayed by
+surgical skin markings a clinician had drawn near a benign lesion \citep{winkler2019association}.
+In each case the model was accurate on data resembling its training set and unreliable beyond it.
+
+Because such failures are invisible to ordinary accuracy metrics, feature-attribution methods from
+explainable AI (XAI) are frequently proposed as a safeguard: if an attribution map highlights an
+irrelevant region, the reasoning goes, a practitioner can catch the shortcut before deployment.
+Whether attributions actually support this use is contested. Several studies report that popular
+saliency methods fail basic sanity checks \citep{adebayo2018sanity}, localize pathology poorly in
+medical images \citep{arun2021assessing,saporta2022benchmarking}, and---most directly---are
+unreliable for surfacing injected spurious signals, particularly when those signals are unknown or
+not visually obvious \citep{adebayo2020debugging,adebayo2022posthoc}. The practical question is
+therefore not whether attributions \emph{can} be computed, but whether, and under what conditions,
+they \emph{faithfully reveal} a model's reliance on a shortcut.
+
+We study this question in a deliberately controlled setting. We inject an artificial marker into a
+binary chest-X-ray task and correlate it with the label at several strengths, so that the shortcut
+is known by construction and detection can be scored against ground truth. We stress at the outset
+that the broad question ``can explainability detect shortcut learning?'' is \emph{not} novel: it is
+essentially the question posed by \citet{adebayo2020debugging,adebayo2022posthoc}, whose answer is
+nuanced (detection tends to succeed for visible, known artifacts and to fail for non-visible or
+unknown ones). Our aim is narrower and complementary. First, prior work largely treats the shortcut
+as present or absent; we instead vary its \emph{strength} and ask how attribution-based detection
+behaves along that dose--response axis. Second, we insist that a model's reliance be established
+\emph{behaviorally} before any attribution is trusted, which turns out to be essential: we find an
+attribution method that flags a marker the model does not actually use. Third, we compare three
+standard methods---Grad-CAM \citep{selvaraju2017gradcam}, Integrated Gradients
+\citep{sundararajan2017axiomatic}, and Occlusion Sensitivity \citep{zeiler2014visualizing}---under
+identical conditions, and we are explicit about a spatial-resolution confound that makes one of the
+three comparisons unfair as it stands.
+
+Concretely, our contributions are: (i) a controlled, reproducible dose--response benchmark on a
+medical image classifier, varying shortcut strength $\rho$ rather than toggling the shortcut on and
+off; (ii) a detection protocol that couples above-chance attribution localization with a measured
+behavioral reliance test, which we show guards against a real false-positive failure mode; and (iii)
+a head-to-head comparison of the three attribution methods, reported with its limitations---including
+the resolution confound affecting Grad-CAM---stated plainly rather than glossed over. All findings
+are descriptive (three seeds, one binary task) and we make no claim of statistical significance or
+of generalization beyond this setting.
 
 % ===========================================================================
 \section{Related Work}
 \label{sec:related}
-% DRAFT --- to expand.
-\textbf{Shortcut learning and spurious correlations.} \citet{geirhos2020shortcut} frame shortcut
-learning as a unifying account of generalization failures. In medical imaging,
-\citet{zech2018variable}, \citet{degrave2021ai}, and \citet{winkler2019association} document
-concrete shortcuts. \citet{lapuschkin2019unmasking} use explanations to expose ``Clever Hans''
-behavior at the dataset level.
 
-\textbf{Attribution methods.} We study three established methods: Grad-CAM
-\citep{selvaraju2017gradcam}, Integrated Gradients \citep{sundararajan2017axiomatic}, and
-Occlusion Sensitivity \citep{zeiler2014visualizing}.
+\paragraph{Shortcut learning and spurious correlations.}
+\citet{geirhos2020shortcut} consolidate a range of generalization failures under the single notion
+of shortcut learning and argue that benchmark accuracy can mask brittle, non-transferable decision
+rules. The phenomenon is well documented in medical imaging specifically. \citet{zech2018variable}
+train pneumonia classifiers across three hospital systems and show that models can recover the
+source hospital almost perfectly and exploit site-level prevalence, so internal test performance
+overstates real-world accuracy. \citet{degrave2021ai} find that COVID-19 chest-radiograph
+classifiers rely on dataset-source confounders rather than pathology, and emphasize that external
+validation alone does not guarantee a model uses clinically meaningful signal.
+\citet{winkler2019association} demonstrate a shortcut with an unusually clear cause: gentian-violet
+skin markings inflate a melanoma classifier's malignancy score for benign lesions, and cropping the
+ink restores specificity. Our injected marker is a controlled analogue of this last, concrete case.
 
-\textbf{Reliability of attributions.} \citet{adebayo2018sanity} show several saliency methods
-fail basic sanity checks; \citet{arun2021assessing} and \citet{saporta2022benchmarking} find
-saliency maps are weak localizers in medical imaging. Most directly,
-\citet{adebayo2020debugging} and \citet{adebayo2022posthoc} ask whether post-hoc explanations
-detect injected spurious signals, reporting that detection succeeds for visible/known artifacts
-but fails for unknown or non-visible ones---the nuance our study operates within. Explanation-guided
-training \citep{ross2017right,rieger2020interpretations} assumes the shortcut is already known;
-we instead ask whether it can be \emph{detected}.
+\paragraph{Attribution methods.}
+We study three widely used post-hoc methods spanning the main families. Grad-CAM
+\citep{selvaraju2017gradcam} weights final-layer convolutional activations by their class gradients
+to produce a coarse, class-discriminative localization map. Integrated Gradients
+\citep{sundararajan2017axiomatic} is a path-integral attribution defined by the Sensitivity and
+Implementation-Invariance axioms, computed by integrating input gradients from a baseline to the
+input. Occlusion Sensitivity \citep{zeiler2014visualizing} is a perturbation method that measures
+the change in the target score as a window slides across and masks the image. These three differ in
+mechanism (activation-gradient, path-integral, perturbation) and in spatial resolution, which is
+central to interpreting our results.
+
+\paragraph{Reliability and faithfulness of attributions.}
+A substantial literature questions how far attributions can be trusted. \citet{adebayo2018sanity}
+introduce randomization tests and show that some saliency methods are insensitive to model
+parameters or to the data-generating process, behaving like edge detectors; notably, gradient-based
+methods and Grad-CAM pass these checks while guided-backpropagation variants do not. In medical
+imaging, \citet{arun2021assessing} report that eight saliency methods fail at least one
+trustworthiness criterion on two public radiology datasets, and \citet{saporta2022benchmarking}
+find that seven methods localize pathologies worse than a human benchmark, with Grad-CAM the
+strongest of the group but still well below expert segmentation. These results motivate both our
+chance-corrected localization metric and our refusal to treat a heat map as self-evidently
+meaningful.
+
+\paragraph{Detecting and correcting shortcuts with explanations.}
+Explanations have been used to expose spurious reliance at the dataset level: \citet{lapuschkin2019unmasking}
+cluster relevance maps to reveal ``Clever Hans'' behavior, such as a classifier keying on a source
+tag in a subset of images. A separate line uses explanations to \emph{correct} shortcuts by
+penalizing attribution in regions known to be irrelevant \citep{ross2017right,rieger2020interpretations};
+critically, these methods presuppose that the shortcut has already been identified. The work closest
+to ours asks whether post-hoc explanations can \emph{detect} an injected spurious signal in the
+first place. \citet{adebayo2020debugging} find that attributions can help flag a visible
+spurious-background bug, though a human study shows users lean on predictions rather than the maps;
+\citet{adebayo2022posthoc} show that feature attribution, concept activation, and training-point
+ranking are largely ineffective when the artifact is unknown at test time, especially for
+non-visible artifacts, and that attribution can even indicate reliance where none exists. Our study
+sits inside this nuance: we restrict attention to a visible, known shortcut, add a dose--response
+axis that these works do not isolate, and reproduce---independently and in a medical setting---the
+false-positive behavior that \citet{adebayo2022posthoc} warn about.
 
 % ===========================================================================
 \section{Background}
